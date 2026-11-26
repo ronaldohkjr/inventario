@@ -313,7 +313,7 @@ let tt;function toast(msg,err){const t=$("#toast");t.textContent=msg;t.className
 function setSync(state,txt){$("#syncDot").className="dot"+(state==="on"?" on":state==="err"?" err":"");$("#syncTxt").textContent=txt}
 function errMsg(e){
   const c=e&&e.code;
-  if(c==="invalid_argument")return "Você não tem permissão para alterar o inventário (peça acesso de Colaborador ao dono da página).";
+  if(c==="invalid_argument")return "Só os responsáveis do inventário podem fazer isso. Clique em Entrar para editar e use um e-mail autorizado.";
   if(c==="quota_exceeded")return "O banco de dados está cheio. Remova registros antigos.";
   if(c==="resource_exhausted")return "Muitas alterações seguidas. Aguarde alguns segundos e tente de novo.";
   return "Não foi possível salvar. Verifique a conexão e tente de novo.";
@@ -423,7 +423,7 @@ function drawItem(mode){
   let html=`<div class="drawer" role="dialog" aria-modal="true" aria-label="Detalhes do item">
    <div class="dhead"><div>${codeHtml(it.codigo)}<h2 style="margin-top:10px">${esc(it.descricao||it.descricaoSap||"(sem descrição)")}</h2></div><button class="x" data-act="close" aria-label="Fechar">×</button></div>
    <div class="path">${pathParts.map(([v,l])=>`<div><span>${esc(l)}</span><b>${esc(v)}</b></div>`).join("")}</div>
-   ${it.removido?"":`<div class="actions" style="margin:0 0 14px"><button class="btn primary editbtn" data-act="edit"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Editar item<span class="editsub">nome, local, caixa, código</span></button></div>`}
+   ${(it.removido||!canWrite)?"":`<div class="actions" style="margin:0 0 14px"><button class="btn primary editbtn" data-act="edit"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Editar item<span class="editsub">nome, local, caixa, código</span></button></div>`}
    <dl>
      <dt>Situação</dt><dd>${statusHtml(it)}</dd>
      <dt>Tipo</dt><dd>${esc(it.tipo||"—")}</dd>
@@ -464,7 +464,10 @@ function drawItem(mode){
         <div class="actions" style="margin-top:0"><button class="btn primary" type="submit">Registrar empréstimo</button></div>
       </form></div>`;
   }
-  if(!it.removido){
+  if(!it.removido&&!canWrite){
+    html+=`<p class="sub" style="margin-top:16px">Editar o item, a observação ou dar baixa: só para os responsáveis do inventário (botão Entrar para editar, no topo).</p>`;
+  }
+  if(!it.removido&&canWrite){
     html+=`<div class="box"><h3>Editar observação</h3><form id="fObs" class="grid" style="gap:10px">
       <textarea id="oTxt">${esc(it.obs||"")}</textarea><div class="actions" style="margin-top:0"><button class="btn" type="submit">Salvar observação</button></div></form></div>`;
     html+= mode==="confirmDel"
@@ -483,7 +486,7 @@ function drawItem(mode){
   if(h.length)html+=`<div class="box"><h3>Histórico de empréstimos</h3><div class="tablebox"><table style="min-width:0"><thead><tr><th>Pessoa</th><th>Retirada</th><th>Devolução</th></tr></thead><tbody>${h.map(x=>`<tr><td>${esc(x.pessoa)}</td><td>${fmtDate(x.retirada)}</td><td>${x.devolucao?fmtDate(x.devolucao):"—"}</td></tr>`).join("")}</tbody></table></div></div>`;
   html+=`</div>`;
   ov.innerHTML=html;ov.hidden=false;
-  if(!canWrite)ov.querySelectorAll("form button, [data-act=askDel], [data-act=restore]").forEach(b=>b.disabled=true);
+  if(!canWrite)ov.querySelectorAll("#fObs button, #fDel button, [data-act=askDel], [data-act=restore]").forEach(b=>b.hidden=true);
   ov.querySelector("[data-act=close]").focus();
 }
 $("#overlay").addEventListener("click",async e=>{
@@ -501,23 +504,13 @@ $("#overlay").addEventListener("submit",async e=>{
   try{
     if(f.id==="fEmp"){
       const pessoa=$("#eP").value.trim();if(!pessoa){btn.disabled=false;return}
-      const rec={sec:it.sec,itemKey:it.key,codigo:it.codigo||"",descricao:it.descricao||"",pessoa,retirada:$("#eD").value,previsao:$("#eV").value||"",motivo:$("#eM").value.trim(),devolucao:"",obsDevolucao:"",registradoPor:myId||"",criadoEm:new Date().toISOString()};
-      const ref=await db.collection("emprestimos").add(rec);
-      await saveItem(it,{emprestimo:{pessoa,desde:rec.retirada,motivo:rec.motivo,previsao:rec.previsao,id:ref.id}},`Empréstimo registrado para ${pessoa}`);
+      await loanRpc(it,"emprestar",{p_item:it.key,p_pessoa:pessoa,p_retirada:$("#eD").value||null,p_previsao:$("#eV").value||null,p_motivo:$("#eM").value.trim()},`Empréstimo registrado para ${pessoa}`);
     }else if(f.id==="fDev"){
-      const em=it.emprestimo,data=$("#dData").value,obs=$("#dObs").value.trim();
-      if(em.id){await db.collection("emprestimos").doc(em.id).update({devolucao:data,obsDevolucao:obs,devolvidoPor:myId||""})}
-      else{await db.collection("emprestimos").add({sec:it.sec,itemKey:it.key,codigo:it.codigo||"",descricao:it.descricao||"",pessoa:em.pessoa,retirada:em.desde||"",previsao:"",motivo:em.motivo||"",devolucao:data,obsDevolucao:obs,registradoPor:myId||"",devolvidoPor:myId||"",criadoEm:new Date().toISOString()})}
-      await saveItem(it,{emprestimo:null},`Devolução registrada: ${it.codigo||it.descricao}`);
+      await loanRpc(it,"devolver",{p_item:it.key,p_data:$("#dData").value||null,p_obs:$("#dObs").value.trim()},`Devolução registrada: ${it.codigo||it.descricao}`);
     }else if(f.id==="fTrans"){
-      const em=it.emprestimo,nova=$("#tP").value.trim(),data=$("#tD").value,mot=$("#tM").value.trim();
+      const em=it.emprestimo,nova=$("#tP").value.trim();
       if(!nova||norm(nova)===norm(em.pessoa)){toast("Informe uma pessoa diferente de "+em.pessoa+".",true);btn.disabled=false;return}
-      const obsT="Transferido para "+nova;
-      if(em.id){await db.collection("emprestimos").doc(em.id).update({devolucao:data,obsDevolucao:obsT,devolvidoPor:myId||""})}
-      else{await db.collection("emprestimos").add({sec:it.sec,itemKey:it.key,codigo:it.codigo||"",descricao:it.descricao||"",pessoa:em.pessoa,retirada:em.desde||"",previsao:"",motivo:em.motivo||"",devolucao:data,obsDevolucao:obsT,registradoPor:myId||"",devolvidoPor:myId||"",criadoEm:new Date().toISOString()})}
-      const rec={sec:it.sec,itemKey:it.key,codigo:it.codigo||"",descricao:it.descricao||"",pessoa:nova,retirada:data,previsao:"",motivo:mot,devolucao:"",obsDevolucao:"",transferidoDe:em.pessoa,registradoPor:myId||"",criadoEm:new Date(Date.now()+1).toISOString()};
-      const ref=await db.collection("emprestimos").add(rec);
-      await saveItem(it,{emprestimo:{pessoa:nova,desde:data,motivo:mot,previsao:"",id:ref.id}},`Item transferido de ${em.pessoa} para ${nova}`);
+      await loanRpc(it,"transferir",{p_item:it.key,p_pessoa:nova,p_data:$("#tD").value||null,p_motivo:$("#tM").value.trim()},`Item transferido de ${em.pessoa} para ${nova}`);
     }else if(f.id==="fEdit"){
       await saveEdit(it);return;
     }else if(f.id==="fObs"){
@@ -527,7 +520,7 @@ $("#overlay").addEventListener("submit",async e=>{
       await saveItem(it,{removido:{em:$("#rD").value,motivo:$("#rM").value,destino:$("#rDest").value.trim(),obs:$("#rO").value.trim(),por:myId||"",registradoEm:new Date().toISOString()}},`Baixa registrada: ${it.codigo||it.descricao}`);
       closeDrawer();return;
     }
-  }catch(err){toast(errMsg(err),true);btn.disabled=false;return}
+  }catch(err){toast(err&&err.loanMsg?err.loanMsg:errMsg(err),true);btn.disabled=false;return}
 });
 /* ---------- editar item ---------- */
 function drawEdit(it){
@@ -602,6 +595,15 @@ async function saveEdit(it){
     toast(`Item ${fields.codigo||fields.descricao} atualizado`);
     drawItem();
   }catch(err){toast(errMsg(err),true);btn.disabled=false}
+}
+async function loanRpc(it,fn,args,msg){
+  const r=await sb.rpc(fn,args);
+  if(r.error){const e=sbErr(r.error);e.loanMsg=(r.error.message||"").replace(/^.*?exception:\s*/i,"")||errMsg(e);throw e}
+  const [a,b]=await Promise.all([sb.from("itens").select("*").eq("id",it.key).single(),sb.from("emprestimos").select("*").eq("item_id",it.key)]);
+  if(!a.error)applyItemRow(a.data);
+  if(!b.error)b.data.forEach(upsertEmp);
+  afterItems();afterEmp();toast(msg);
+  if(openKey&&drawerMode!=="edit")drawItem();
 }
 async function saveItem(it,patch,msg){
   try{
@@ -895,7 +897,7 @@ document.addEventListener("visibilitychange",()=>{if(!document.hidden&&loaded)lo
 
 /* ---------- login (só para editar; consulta é aberta) ---------- */
 canWrite=false;
-const READONLY_MSG="Modo consulta: qualquer pessoa pode ver o inventário. Para cadastrar, emprestar, devolver ou dar baixa, clique em Entrar para editar.";
+const READONLY_MSG="Qualquer pessoa pode consultar, pegar emprestado e devolver itens (clique no item). Para cadastrar, editar ou dar baixa, clique em Entrar para editar.";
 function setBanner(t){$("#banner").textContent=t;$("#banner").hidden=!t}
 function refreshPerms(){render();if(openKey&&!typing())drawItem(drawerMode==="edit"?"edit":undefined)}
 function showLogin(msg){$("#login").hidden=false;$("#lMsg").className="hint";$("#lMsg").textContent=msg||"";$("#lEmail").focus();window.scrollTo(0,0)}
@@ -920,7 +922,7 @@ async function setUser(session){
   if(/access_token|error_description/.test(location.hash))history.replaceState(null,"",location.pathname+location.search);
   const w=await sb.rpc("eh_membro",{editar:true});
   canWrite=!w.error&&!!w.data;
-  setBanner(canWrite?"":`O e-mail ${session.user.email} não tem permissão de edição. Você continua podendo consultar. Peça ao responsável para incluir este e-mail.`);
+  setBanner(canWrite?"":`O e-mail ${session.user.email} não tem permissão de edição. Você continua podendo consultar, emprestar e devolver. Peça ao responsável para incluir este e-mail.`);
   refreshPerms();
 }
 function clearUser(){userSet=false;myId=null;canWrite=false;$("#userbox").hidden=true;$("#entrar").hidden=false;setBanner(READONLY_MSG);refreshPerms()}
