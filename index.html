@@ -708,7 +708,7 @@ function lookup(){
     out.innerHTML=`<div class="box"><h3>Item novo no inventário</h3><p style="margin:0">Nenhuma unidade do código <b>${esc(v)}</b> está no inventário. Escolha o <b>local</b> e a <b>caixa</b> no formulário abaixo; o portal sugere o próximo número livre.${old.length?`<br><span class="sub">Já teve ${old.length} ${old.length===1?"unidade":"unidades"} com baixa (${esc(old.map(o=>o.codigo).filter(Boolean).join(", "))}); a descrição foi preenchida a partir delas.</span>`:""}</p></div>`;
     setModo("novo");$("#nNum").value=v;
     if(old.length){const o=old[0];$("#nTipo").value=o.tipo||"";$("#nDesc").value=o.descricao||"";$("#nSap").value=o.descricaoSap||""}
-    updateNovo();$("#nLocal").focus();return;
+    updateNovo();return;
   }
   const g={};
   hits.forEach(i=>{const b=i.codigo?baseOf(i.codigo):"";const k=i.sec+"|"+(i.caixa||"")+"|"+b;(g[k]=g[k]||{sec:i.sec,caixa:i.caixa||"",base:b,list:[]}).list.push(i)});
@@ -731,7 +731,11 @@ function applyGroup(ix){
   updateNovo();
   $("#lkRes").querySelectorAll("tr[data-g]").forEach(tr=>{const on=+tr.dataset.g===ix;tr.style.background=on?"var(--surface)":"";const b=tr.querySelector("button");b.textContent=on?"Selecionado":"Usar este lugar";b.className="btn sm"+(on?" primary":"")});
 }
-let lkT;$("#lkNum").addEventListener("input",()=>{clearTimeout(lkT);lkT=setTimeout(lookup,350)});
+let lkT;$("#lkNum").addEventListener("input",()=>{clearTimeout(lkT);
+  const d=$("#lkNum").value.replace(/\D/g,"");
+  if(!$("#lkNum").value.trim()){lookup();return}
+  if(d.length>=13)lkT=setTimeout(lookup,600);
+  else{$("#lkRes").innerHTML=`<div class="hint">Termine de digitar o código e aperte Enter ou Procurar.</div>`}});
 $("#lkNum").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();clearTimeout(lkT);lookup()}});
 $("#lkBtn").addEventListener("click",()=>{clearTimeout(lkT);lookup()});
 $("#lkRes").addEventListener("click",e=>{const b=e.target.closest("button[data-g]");if(b)applyGroup(+b.dataset.g)});
