@@ -21,6 +21,8 @@ Portal para buscar onde cada item está (porta, caixa, código), cadastrar, edit
    insert into membros (email, nome, pode_editar) values ('visitante@empresa.com.br', 'Visitante', false);
    ```
 
+5. Consulta aberta para qualquer pessoa: rode também [`supabase/acesso-publico.sql`](supabase/acesso-publico.sql). Com ele, qualquer pessoa vê o inventário sem login; cadastrar, emprestar, devolver e dar baixa continua exigindo um e-mail da tabela `membros` com `pode_editar = true`.
+
 ### 2. Publicar a página no GitHub Pages
 1. Crie uma conta em <https://github.com> e um repositório novo **público** (ex.: `inventario-suporte`), sem README.
 2. Envie esta pasta para o repositório (comandos no final deste arquivo), ou use **Add file › Upload files** e arraste `index.html`, `config.js`, `LEIA-ME.md` e a pasta `supabase`.

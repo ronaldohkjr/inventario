@@ -151,8 +151,9 @@ dt{color:var(--muted);font-size:13px} dd{margin:0;min-width:0;overflow-wrap:anyw
       <h1>Inventário Suporte Técnico<small>Sala 1106 · Tecomec</small></h1>
       <div class="sync" id="sync"><span class="dot" id="syncDot"></span><span id="syncTxt">Conectando…</span></div>
       <div class="userbox" id="userbox" hidden><span id="userEmail"></span><button class="btn sm" id="sair" type="button">Sair</button></div>
+      <button class="btn sm primary" id="entrar" type="button">Entrar para editar</button>
     </div>
-    <nav role="tablist" id="tabs" hidden>
+    <nav role="tablist" id="tabs">
       <button role="tab" data-tab="buscar" aria-selected="true">Buscar</button>
       <button role="tab" data-tab="cadastrar" aria-selected="false">Cadastrar item</button>
       <button role="tab" data-tab="emprestimos" aria-selected="false">Empréstimos</button>
@@ -164,16 +165,16 @@ dt{color:var(--muted);font-size:13px} dd{margin:0;min-width:0;overflow-wrap:anyw
 
 <section class="wrap" id="login" hidden>
   <div class="panel loginbox">
-    <h2>Entrar no inventário</h2>
-    <p class="lead">Digite seu e-mail da empresa. Você recebe um link de acesso; clique nele para entrar. Só e-mails liberados pelo responsável do inventário conseguem ver os itens.</p>
+    <h2>Entrar para editar</h2>
+    <p class="lead">Consultar o inventário não precisa de login. Para cadastrar, emprestar, devolver ou dar baixa, digite seu e-mail autorizado: você recebe um link de acesso e entra clicando nele.</p>
     <form id="fLogin" class="grid" style="gap:10px">
       <div><label for="lEmail">E-mail</label><input id="lEmail" type="email" required autocomplete="email" placeholder="nome@empresa.com.br"></div>
-      <div class="actions" style="margin-top:0"><button class="btn primary" type="submit" id="lBtn">Enviar link de acesso</button></div>
+      <div class="actions" style="margin-top:0"><button class="btn primary" type="submit" id="lBtn">Enviar link de acesso</button><button class="btn" type="button" id="lCancel">Voltar para consulta</button></div>
       <div class="hint" id="lMsg"></div>
     </form>
   </div>
 </section>
-<main class="wrap" id="app" hidden>
+<main class="wrap" id="app">
   <div id="banner" class="banner" hidden></div>
 
   <!-- BUSCAR -->
@@ -892,8 +893,15 @@ function live(){
 }
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&loaded)loadAll().catch(()=>{})});
 
-/* ---------- login ---------- */
-function showLogin(msg){$("#login").hidden=false;$("#app").hidden=true;$("#tabs").hidden=true;$("#userbox").hidden=true;setSync("","Desconectado");if(msg){$("#lMsg").textContent=msg}}
+/* ---------- login (só para editar; consulta é aberta) ---------- */
+canWrite=false;
+const READONLY_MSG="Modo consulta: qualquer pessoa pode ver o inventário. Para cadastrar, emprestar, devolver ou dar baixa, clique em Entrar para editar.";
+function setBanner(t){$("#banner").textContent=t;$("#banner").hidden=!t}
+function refreshPerms(){render();if(openKey&&!typing())drawItem(drawerMode==="edit"?"edit":undefined)}
+function showLogin(msg){$("#login").hidden=false;$("#lMsg").className="hint";$("#lMsg").textContent=msg||"";$("#lEmail").focus();window.scrollTo(0,0)}
+function hideLogin(){$("#login").hidden=true}
+$("#entrar").addEventListener("click",()=>showLogin(""));
+$("#lCancel").addEventListener("click",hideLogin);
 $("#fLogin").addEventListener("submit",async e=>{
   e.preventDefault();const email=$("#lEmail").value.trim();if(!email)return;
   $("#lBtn").disabled=true;$("#lMsg").className="hint";$("#lMsg").textContent="Enviando…";
@@ -904,32 +912,31 @@ $("#fLogin").addEventListener("submit",async e=>{
 });
 $("#sair").addEventListener("click",async()=>{await sb.auth.signOut();location.hash="";location.reload()});
 
-let started=false;
-async function enter(session){
-  if(started)return;started=true;
-  myId=session.user.id;
-  $("#login").hidden=true;$("#userEmail").textContent=session.user.email||"";$("#userbox").hidden=false;
-  const m=await sb.rpc("eh_membro",{editar:false});
-  if(m.error||!m.data){started=false;showLogin("");$("#login").innerHTML=`<div class="panel loginbox"><h2>Acesso não liberado</h2><p class="lead">O e-mail <b>${esc(session.user.email)}</b> ainda não está na lista de membros do inventário. Peça ao responsável para incluir este e-mail.</p><div class="actions"><button class="btn" id="sair2" type="button">Entrar com outro e-mail</button></div></div>`;$("#userbox").hidden=true;
-    $("#sair2").addEventListener("click",async()=>{await sb.auth.signOut();location.reload()});return}
-  const w=await sb.rpc("eh_membro",{editar:true});
-  canWrite=!!w.data;
-  if(!canWrite){$("#banner").textContent="Você tem acesso só de leitura. Para cadastrar, emprestar ou dar baixa, peça permissão de edição ao responsável.";$("#banner").hidden=false}
-  $("#app").hidden=false;$("#tabs").hidden=false;
+let userSet=false;
+async function setUser(session){
+  if(userSet)return;userSet=true;
+  myId=session.user.id;hideLogin();
+  $("#userEmail").textContent=session.user.email||"";$("#userbox").hidden=false;$("#entrar").hidden=true;
   if(/access_token|error_description/.test(location.hash))history.replaceState(null,"",location.pathname+location.search);
+  const w=await sb.rpc("eh_membro",{editar:true});
+  canWrite=!w.error&&!!w.data;
+  setBanner(canWrite?"":`O e-mail ${session.user.email} não tem permissão de edição. Você continua podendo consultar. Peça ao responsável para incluir este e-mail.`);
+  refreshPerms();
+}
+function clearUser(){userSet=false;myId=null;canWrite=false;$("#userbox").hidden=true;$("#entrar").hidden=false;setBanner(READONLY_MSG);refreshPerms()}
+
+(async function start(){
+  setBanner(READONLY_MSG);
+  const {data:{session}}=await sb.auth.getSession();
   const h0=location.hash.slice(1);showTab(TABS.includes(h0)?h0:"buscar");
+  if(session)setUser(session);
+  else if(/error_description=/.test(location.hash)){history.replaceState(null,"",location.pathname);showLogin("O link expirou ou já foi usado. Peça um novo.")}
+  sb.auth.onAuthStateChange((ev,s)=>{if(s&&ev==="SIGNED_IN")setUser(s);if(ev==="SIGNED_OUT")clearUser()});
   setSync("","Carregando…");
   try{await loadAll();setSync("on","Sincronizado");live()}
-  catch(err){setSync("err","Erro ao carregar");toast("Não foi possível carregar o inventário. Verifique a conexão e recarregue.",true)}
-}
-(async function start(){
-  const {data:{session}}=await sb.auth.getSession();
-  if(session)enter(session);
-  else{
-    const err=/error_description=([^&]+)/.exec(location.hash);
-    showLogin(err?"O link expirou ou já foi usado. Peça um novo.":"");
-  }
-  sb.auth.onAuthStateChange((ev,s)=>{if(s&&ev==="SIGNED_IN")enter(s);if(ev==="SIGNED_OUT")showLogin("")});
+  catch(err){setSync("err","Erro ao carregar");console.error(err);
+    const msg=String(err&&err.message||err||"");
+    toast(/permission denied/i.test(msg)?"O banco recusou a leitura. Rode o arquivo acesso-publico.sql no Supabase.":"Não foi possível carregar o inventário: "+msg,true)}
 })();
 })();
 </script>
