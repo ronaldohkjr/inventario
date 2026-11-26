@@ -834,17 +834,24 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("#okModal").hidd
 function renderEmp(){
   const out=active().filter(i=>i.emprestimo);
   const by={};out.forEach(i=>{const p=i.emprestimo.pessoa||"(sem nome)";(by[p]=by[p]||[]).push(i)});
+  emprestimos.filter(e=>!e.itemKey&&!e.devolucao).forEach(e=>{const p=e.pessoa||"(sem nome)";(by[p]=by[p]||[]).push({avulso:e})});
   const people=Object.keys(by).sort((a,b)=>by[b].length-by[a].length||a.localeCompare(b));
   $("#ativos").innerHTML=people.length?people.map(p=>`<details class="person"><summary><span>${esc(p)}</span><span class="pill out">${by[p].length} ${by[p].length===1?"item":"itens"}</span></summary>
     <div class="tablebox"><table><thead><tr><th>Código</th><th>Item</th><th>Desde</th><th>Motivo</th><th></th></tr></thead><tbody>
-    ${by[p].map(i=>`<tr><td>${codeHtml(i.codigo)}</td><td><div class="desc">${esc(i.descricao)}</div><div class="sub">${esc(whereTxt(i))}</div></td><td>${i.emprestimo.desde?fmtDate(i.emprestimo.desde):"—"}</td><td>${esc(i.emprestimo.motivo||"—")}</td>
+    ${by[p].map(i=>i.avulso?`<tr><td><span class="code none">sem cadastro</span></td><td><div class="desc">${esc(i.avulso.descricao)}</div><div class="sub">Retirada avulsa pelo QR code${i.avulso.setor?" · "+esc(i.avulso.setor):""}</div></td><td>${fmtDate(i.avulso.retirada)}</td><td>${esc(i.avulso.motivo||"—")}</td>
+    <td><button class="btn sm" data-avulso="${esc(i.avulso.id)}">Devolver</button></td></tr>`:`<tr><td>${codeHtml(i.codigo)}</td><td><div class="desc">${esc(i.descricao)}</div><div class="sub">${esc(whereTxt(i))}</div></td><td>${i.emprestimo.desde?fmtDate(i.emprestimo.desde):"—"}</td><td>${esc(i.emprestimo.motivo||"—")}</td>
     <td><button class="btn sm" data-open="${esc(i.sec+"|"+i.key)}">Devolver…</button></td></tr>`).join("")}</tbody></table></div></details>`).join("")
     :`<div class="panel empty">Nenhum item emprestado no momento.</div>`;
   const h=[...emprestimos].sort((a,b)=>(b.criadoEm||"").localeCompare(a.criadoEm||"")).slice(0,300);
   $("#hist").innerHTML=h.length?h.map(x=>`<tr><td>${codeHtml(x.codigo)}</td><td>${esc(x.descricao)}</td><td>${esc(x.pessoa)}</td><td>${fmtDate(x.retirada)}</td><td>${x.devolucao?fmtDate(x.devolucao):`<span class="pill out">Em aberto</span>`}</td><td>${esc(x.motivo||"—")}${x.obsDevolucao?`<div class="sub">${esc(x.obsDevolucao)}</div>`:""}</td></tr>`).join("")
     :`<tr><td colspan="6" class="empty">Nenhum empréstimo registrado pelo portal ainda.</td></tr>`;
 }
-$("#tab-emprestimos").addEventListener("click",e=>{const b=e.target.closest("[data-open]");if(b)openItem(b.dataset.open)});
+$("#tab-emprestimos").addEventListener("click",async e=>{const b=e.target.closest("[data-open]");if(b)openItem(b.dataset.open);
+  const a=e.target.closest("[data-avulso]");if(!a)return;a.disabled=true;
+  const r=await sb.rpc("devolver_avulso",{p_emprestimo:a.dataset.avulso,p_obs:""});
+  if(r.error){toast((r.error.message||"Não foi possível devolver.").replace(/^.*?exception:\s*/i,""),true);a.disabled=false;return}
+  const x=await sb.from("emprestimos").select("*").eq("id",a.dataset.avulso).single();if(!x.error){upsertEmp(x.data);afterEmp()}
+  toast("Devolução registrada")});
 
 /* ---------- contagem ---------- */
 function bars(el,rows){
@@ -948,7 +955,7 @@ const E_MAP={itemKey:"item_id",codigo:"codigo",descricao:"descricao",pessoa:"pes
 const DATE_F=new Set(["cadastradoEm","retirada","previsao","devolucao"]);
 function toRow(p,map){const r={};for(const k in p){if(map[k]){let v=p[k];if(DATE_F.has(k)&&!v)v=null;if(v===undefined)continue;r[map[k]]=v}}return r}
 function rowToItem(r){return{codigo:r.codigo||"",numItem:r.num_item||"",tipo:r.tipo||"",descricao:r.descricao||"",descricaoSap:r.descricao_sap||"",caixa:r.caixa||"",cadastradoEm:r.cadastrado_em||"",obs:r.obs||"",emprestimo:r.emprestimo||null,removido:r.removido||null}}
-function rowToEmp(r){return{id:r.id,itemKey:r.item_id,codigo:r.codigo||"",descricao:r.descricao||"",pessoa:r.pessoa||"",retirada:r.retirada||"",previsao:r.previsao||"",motivo:r.motivo||"",devolucao:r.devolucao||"",obsDevolucao:r.obs_devolucao||"",transferidoDe:r.transferido_de||"",criadoEm:r.criado_em||""}}
+function rowToEmp(r){return{id:r.id,itemKey:r.item_id,codigo:r.codigo||"",descricao:r.descricao||"",pessoa:r.pessoa||"",retirada:r.retirada||"",previsao:r.previsao||"",motivo:r.motivo||"",devolucao:r.devolucao||"",obsDevolucao:r.obs_devolucao||"",transferidoDe:r.transferido_de||"",setor:r.setor||"",criadoEm:r.criado_em||""}}
 function sbErr(e){const c=String(e&&e.code||"");return{code:(c==="42501"||c==="PGRST301"||/permission|row-level/i.test(e&&e.message||""))?"invalid_argument":"unavailable",message:e&&e.message}}
 function applyItemRow(r){
   Object.values(secoes).forEach(s=>{if(s.itens[r.id]&&s!==secoes[r.secao])delete s.itens[r.id]});

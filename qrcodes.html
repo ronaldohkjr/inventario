@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>QR codes da sala</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=Archivo:wght@800&display=swap">
+<style>
+/* Cartazes A4 para a parede: um QR code por folha. */
+:root{--accent:#0d6b73;--warn:#a35b00;--fg:#16202a;--muted:#5b6873;--bg:#f3f5f6}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 "IBM Plex Sans","Segoe UI",system-ui,sans-serif}
+.bar{max-width:900px;margin:0 auto;padding:16px max(16px,env(safe-area-inset-left,0px));display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.bar p{margin:0;flex:1 1 300px;color:var(--muted)}
+.bar button{font:600 16px "IBM Plex Sans","Segoe UI",sans-serif;background:var(--accent);color:#fff;border:0;border-radius:8px;padding:12px 18px;cursor:pointer}
+.sheets{display:flex;flex-wrap:wrap;gap:24px;justify-content:center;padding:0 16px 40px}
+.sheet{background:#fff;width:min(420px,100%);aspect-ratio:210/297;border-radius:6px;box-shadow:0 4px 18px rgba(0,0,0,.12);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4%;padding:7%;text-align:center;border-top:18px solid var(--accent)}
+.sheet.dev{border-top-color:var(--warn)}
+.sheet h2{margin:0;font:800 clamp(26px,7vw,40px) "Archivo","Segoe UI",sans-serif;letter-spacing:-.01em;line-height:1.05}
+.sheet .sub{color:var(--muted);font-size:clamp(13px,3.4vw,17px)}
+.qr{width:72%;aspect-ratio:1}
+.qr img,.qr canvas{width:100%!important;height:auto!important}
+.steps{font-size:clamp(12px,3vw,15px);color:var(--fg);text-align:left;margin:0;padding-left:1.2em}
+.url{font-size:11px;color:var(--muted);word-break:break-all}
+@media print{
+  @page{size:A4;margin:0}
+  body{background:#fff}
+  .bar{display:none}
+  .sheets{display:block;padding:0}
+  .sheet{width:210mm;height:297mm;aspect-ratio:auto;box-shadow:none;border-radius:0;page-break-after:always;padding:22mm 20mm;border-top-width:14mm}
+  .sheet h2{font-size:44pt}.sheet .sub{font-size:16pt}.steps{font-size:14pt}.url{font-size:9pt}
+}
+</style>
+</head>
+<body>
+<div class="bar"><p>Imprima em A4 e cole as duas folhas na parede da sala. Cada QR code abre a página no celular, sem precisar de login.</p><button type="button" id="imprimir">Imprimir</button></div>
+<div class="sheets">
+  <section class="sheet">
+    <h2>Retirada<br>de item</h2>
+    <div class="sub">Vai levar algo da sala? Aponte a câmera do celular.</div>
+    <div class="qr" id="qrRet"></div>
+    <ol class="steps"><li>Seu nome e setor</li><li>Código da etiqueta do item</li><li>Registrar retirada</li></ol>
+    <div class="url" id="urlRet"></div>
+  </section>
+  <section class="sheet dev">
+    <h2>Devolução<br>de item</h2>
+    <div class="sub">Trouxe um item de volta? Aponte a câmera do celular.</div>
+    <div class="qr" id="qrDev"></div>
+    <ol class="steps"><li>Escolha seu nome</li><li>Marque os itens que está devolvendo</li><li>Devolver</li></ol>
+    <div class="url" id="urlDev"></div>
+  </section>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+(function(){
+  const ret=new URL("retirada.html",location.href).href, dev=new URL("devolucao.html",location.href).href;
+  document.getElementById("urlRet").textContent=ret;document.getElementById("urlDev").textContent=dev;
+  const opt=t=>({text:t,width:600,height:600,colorDark:"#000000",colorLight:"#ffffff",correctLevel:QRCode.CorrectLevel.M});
+  new QRCode(document.getElementById("qrRet"),opt(ret));
+  new QRCode(document.getElementById("qrDev"),opt(dev));
+  document.getElementById("imprimir").addEventListener("click",()=>window.print());
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Retirada de item</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Archivo:wght@700;800&display=swap">
+<link rel="stylesheet" href="qr.css">
+</head>
+<body>
+<header class="top"><h1>Retirada de item</h1><p>Inventário Suporte Técnico · Sala 1106</p></header>
+<main>
+  <div id="erroGeral" class="err-box" hidden></div>
+
+  <form id="form" autocomplete="on">
+    <section class="card">
+      <div class="step">1 · Quem está retirando</div>
+      <div><label for="nome">Seu nome</label><input id="nome" name="nome" list="pessoas" required autocomplete="name" placeholder="Nome e sobrenome"></div>
+      <div><label for="setor">Setor</label><input id="setor" name="setor" list="setores" required placeholder="Ex.: Suporte técnico, Engenharia"></div>
+    </section>
+
+    <section class="card" style="margin-top:14px">
+      <div class="step">2 · Qual item</div>
+      <div id="blocoCodigo">
+        <label for="codigo">Código da etiqueta</label>
+        <input id="codigo" class="code-in" inputmode="text" autocapitalize="characters" autocomplete="off" placeholder="Ex.: 01E3.1">
+        <div class="hint">É o código na etiqueta amarela do item: porta, caixa, número e unidade.</div>
+        <div id="resCodigo" style="margin-top:10px"></div>
+      </div>
+      <label class="check"><input type="checkbox" id="semCodigo"> O item não tem etiqueta</label>
+
+      <div id="blocoSap" hidden>
+        <label for="sap">Código do item no SAP</label>
+        <input id="sap" inputmode="numeric" autocomplete="off" placeholder="Ex.: 4001030100024">
+        <div id="resSap" style="margin-top:10px"></div>
+        <label class="check"><input type="checkbox" id="semSap"> Não sei o código SAP</label>
+      </div>
+
+      <div id="blocoDesc" hidden>
+        <label for="desc">Descrição do produto</label>
+        <input id="desc" autocomplete="off" placeholder="Ex.: Cabo de divisão AN21">
+        <div class="hint">Descreva o item do jeito mais completo que puder.</div>
+      </div>
+    </section>
+
+    <section class="card" style="margin-top:14px">
+      <div class="step">3 · Para quê (opcional)</div>
+      <div><label for="motivo">Motivo ou destino</label><input id="motivo" autocomplete="off" placeholder="Ex.: atendimento cliente X, simulador"></div>
+    </section>
+
+    <div id="erroForm" class="err-box" hidden style="margin-top:14px"></div>
+    <button class="btn primary" type="submit" id="enviar" style="margin-top:14px">Registrar retirada</button>
+  </form>
+
+  <section id="ok" class="card done" hidden>
+    <div class="ico"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+    <h2>Retirada registrada</h2>
+    <div id="okTxt"></div>
+    <div class="hint">Quando devolver, use o QR code <b>Devolução de item</b> na parede da sala.</div>
+    <button class="btn primary" type="button" id="novo">Registrar outra retirada</button>
+  </section>
+
+  <p class="foot"><a href="./">Abrir o inventário completo</a></p>
+</main>
+<datalist id="pessoas"></datalist>
+<datalist id="setores">
+  <option value="Suporte técnico"><option value="Equipe de campo"><option value="Engenharia"><option value="Produção">
+  <option value="Comercial"><option value="Manutenção"><option value="Qualidade"><option value="Assistência técnica">
+</datalist>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const canon=c=>String(c||"").toUpperCase().replace(/\s+/g,"").replace(/\d+/g,n=>String(+n));
+const digits=s=>String(s||"").replace(/\D/g,"");
+const store={get(k){try{return localStorage.getItem(k)||""}catch(e){return ""}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+const CFG=window.INV_CONFIG||{};
+if(!window.supabase||!CFG.url){$("#erroGeral").textContent="Página sem conexão com o banco. Verifique a internet e recarregue.";$("#erroGeral").hidden=false;return}
+const sb=window.supabase.createClient(CFG.url,CFG.anonKey,{auth:{persistSession:false}});
+
+let itens=[],secoes={},escolhaSap=null;
+const onde=i=>{const s=secoes[i.secao]||i.secao;return s+(i.caixa?(i.caixa.length===1?" · Caixa "+i.caixa:" · "+i.caixa):"")};
+const codeHtml=c=>c?`<span class="code">${esc(c)}</span>`:"";
+
+$("#nome").value=store.get("inv_nome");$("#setor").value=store.get("inv_setor");
+
+async function carregar(){
+  try{
+    let out=[],from=0;
+    for(;;){const r=await sb.from("itens").select("id,secao,caixa,codigo,num_item,descricao,descricao_sap,emprestimo,removido").range(from,from+999);if(r.error)throw r.error;out=out.concat(r.data);if(r.data.length<1000)break;from+=1000}
+    itens=out;
+    const s=await sb.from("secoes").select("id,nome");if(!s.error)s.data.forEach(x=>secoes[x.id]=x.nome);
+    const pes=[...new Set(itens.filter(i=>i.emprestimo&&!i.removido).map(i=>i.emprestimo.pessoa))].sort();
+    $("#pessoas").innerHTML=pes.map(p=>`<option value="${esc(p)}">`).join("");
+    checarCodigo();checarSap();
+  }catch(e){$("#erroGeral").textContent="Não foi possível carregar o inventário. Verifique a internet e recarregue a página.";$("#erroGeral").hidden=false}
+}
+
+/* --- código da etiqueta --- */
+function itemPorCodigo(){const c=canon($("#codigo").value);if(!c)return null;return itens.filter(i=>i.codigo&&canon(i.codigo)===c).sort((a,b)=>(!!a.removido)-(!!b.removido))[0]||null}
+let alvoTransferir=false;
+function checarCodigo(){
+  const box=$("#resCodigo"),v=$("#codigo").value.trim();alvoTransferir=false;
+  if(!v||$("#semCodigo").checked){box.innerHTML="";return}
+  const it=itemPorCodigo();
+  if(!it){box.innerHTML=/\d[A-Z]\d/i.test(v)?`<div class="found warn"><b>Código não encontrado</b><span class="hint">Confira a etiqueta. Se o item não tiver etiqueta, marque a opção abaixo.</span></div>`:"";return}
+  if(it.removido){box.innerHTML=`<div class="found bad"><b>${codeHtml(it.codigo)} ${esc(it.descricao)}</b><span>Este item teve baixa no inventário e não pode ser retirado. Fale com o responsável.</span></div>`;return}
+  if(it.emprestimo){
+    box.innerHTML=`<div class="found warn"><b>${codeHtml(it.codigo)} ${esc(it.descricao)}</b><span>Consta emprestado para <b>${esc(it.emprestimo.pessoa)}</b>.</span>
+      <label class="check"><input type="checkbox" id="transf"> Estou pegando este item de ${esc(it.emprestimo.pessoa)}</label></div>`;
+    $("#transf").addEventListener("change",e=>alvoTransferir=e.target.checked);return}
+  box.innerHTML=`<div class="found ok"><b>${codeHtml(it.codigo)} ${esc(it.descricao)}</b><span>Estava em ${esc(onde(it))}</span></div>`;
+}
+let tC;$("#codigo").addEventListener("input",()=>{clearTimeout(tC);tC=setTimeout(checarCodigo,250)});
+$("#semCodigo").addEventListener("change",()=>{const s=$("#semCodigo").checked;$("#blocoCodigo").hidden=s;$("#blocoSap").hidden=!s;if(s){$("#codigo").value="";$("#resCodigo").innerHTML="";setTimeout(()=>$("#sap").focus(),50)}atualizarDesc()});
+
+/* --- código SAP --- */
+function checarSap(){
+  const box=$("#resSap"),d=digits($("#sap").value);escolhaSap=null;
+  if(!d||$("#semSap").checked){box.innerHTML="";atualizarDesc();return}
+  const ativos=itens.filter(i=>!i.removido&&digits(i.num_item)===d);
+  const disp=ativos.filter(i=>!i.emprestimo);
+  if(d.length<9){box.innerHTML="";atualizarDesc();return}
+  if(!ativos.length){box.innerHTML=`<div class="found warn"><b>Código SAP não encontrado no inventário</b><span class="hint">Tudo bem: a retirada fica registrada mesmo assim. Descreva o produto abaixo.</span></div>`;escolhaSap="avulso";atualizarDesc();return}
+  const nome=ativos[0].descricao||ativos[0].descricao_sap;
+  const semEt=disp.filter(i=>!i.codigo),comEt=disp.filter(i=>i.codigo);
+  const opts=[];
+  if(semEt.length)opts.push({v:semEt[0].id,t:`<b>${esc(nome)}</b><br><span class="hint">Item sem etiqueta · ${esc(onde(semEt[0]))}${semEt.length>1?` · ${semEt.length} disponíveis`:""}</span>`});
+  comEt.slice(0,8).forEach(i=>opts.push({v:i.id,t:`${codeHtml(i.codigo)} <b>${esc(i.descricao)}</b><br><span class="hint">${esc(onde(i))}</span>`}));
+  opts.push({v:"avulso",t:`<b>Nenhum destes</b><br><span class="hint">O item que estou pegando não está nesta lista</span>`});
+  box.innerHTML=`<div class="hint" style="margin-bottom:6px">${esc(nome)}: ${disp.length} ${disp.length===1?"disponível":"disponíveis"} no inventário. ${comEt.length?"Se o item tiver etiqueta, escolha qual é:":"Confirme:"}</div>
+    <div class="list">${opts.map((o,k)=>`<label class="opt${k===0?" sel":""}"><input type="radio" name="opSap" value="${esc(o.v)}"${k===0?" checked":""}><span>${o.t}</span></label>`).join("")}</div>`;
+  escolhaSap=opts[0].v;
+  box.querySelectorAll("input[name=opSap]").forEach(r=>r.addEventListener("change",()=>{escolhaSap=r.value;box.querySelectorAll(".opt").forEach(l=>l.classList.toggle("sel",l.contains(r)));atualizarDesc()}));
+  atualizarDesc();
+}
+let tS;$("#sap").addEventListener("input",()=>{clearTimeout(tS);tS=setTimeout(checarSap,300)});
+$("#semSap").addEventListener("change",()=>{const s=$("#semSap").checked;$("#sap").disabled=s;if(s){$("#sap").value="";$("#resSap").innerHTML="";escolhaSap=null}atualizarDesc();if(s)setTimeout(()=>$("#desc").focus(),50)});
+function atualizarDesc(){
+  const precisa=$("#semCodigo").checked&&($("#semSap").checked||escolhaSap==="avulso");
+  $("#blocoDesc").hidden=!precisa;
+}
+
+/* --- enviar --- */
+function erro(t){$("#erroForm").textContent=t;$("#erroForm").hidden=!t;if(t)$("#erroForm").scrollIntoView({behavior:"smooth",block:"center"})}
+$("#form").addEventListener("submit",async e=>{
+  e.preventDefault();erro("");
+  const nome=$("#nome").value.trim(),setor=$("#setor").value.trim(),motivo=$("#motivo").value.trim();
+  if(!nome){erro("Informe seu nome.");return}
+  if(!setor){erro("Informe seu setor.");return}
+  let call=null,resumo="";
+  if(!$("#semCodigo").checked){
+    const it=itemPorCodigo();
+    if(!$("#codigo").value.trim()){erro("Digite o código da etiqueta, ou marque que o item não tem etiqueta.");return}
+    if(!it){erro("Código não encontrado. Confira a etiqueta ou marque que o item não tem etiqueta.");return}
+    if(it.removido){erro("Este item teve baixa e não pode ser retirado.");return}
+    if(it.emprestimo){
+      if(!alvoTransferir){erro(`Este item consta com ${it.emprestimo.pessoa}. Se você está pegando dele, marque a opção no quadro amarelo.`);return}
+      call=()=>sb.rpc("transferir",{p_item:it.id,p_pessoa:nome,p_data:null,p_motivo:["Setor: "+setor,motivo].filter(Boolean).join(" · ")});
+    }else call=()=>sb.rpc("retirada_qr",{p_pessoa:nome,p_setor:setor,p_item:it.id,p_motivo:motivo});
+    resumo=`${codeHtml(it.codigo)} <b>${esc(it.descricao)}</b><br><span class="hint">Estava em ${esc(onde(it))}</span>`;
+  }else if(!$("#semSap").checked&&escolhaSap&&escolhaSap!=="avulso"){
+    const it=itens.find(i=>i.id===escolhaSap);
+    call=()=>sb.rpc("retirada_qr",{p_pessoa:nome,p_setor:setor,p_item:it.id,p_motivo:motivo});
+    resumo=`${codeHtml(it.codigo)} <b>${esc(it.descricao)}</b><br><span class="hint">Estava em ${esc(onde(it))}</span>`;
+  }else{
+    const sap=$("#semSap").checked?"":digits($("#sap").value),desc=$("#desc").value.trim();
+    if(!$("#semSap").checked&&!sap){erro("Digite o código SAP, ou marque que não sabe o código.");return}
+    if($("#semSap").checked&&!desc){erro("Descreva o produto que você está pegando.");return}
+    call=()=>sb.rpc("retirada_qr",{p_pessoa:nome,p_setor:setor,p_item:null,p_sap:sap,p_descricao:desc,p_motivo:motivo});
+    resumo=`<b>${esc(desc||"Item SAP "+sap)}</b>${sap&&desc?`<br><span class="hint">SAP ${esc(sap)}</span>`:""}<br><span class="hint">Item sem cadastro no inventário</span>`;
+  }
+  $("#enviar").disabled=true;$("#enviar").textContent="Registrando…";
+  const r=await call();
+  $("#enviar").disabled=false;$("#enviar").textContent="Registrar retirada";
+  if(r.error){erro((r.error.message||"Não foi possível registrar. Tente de novo.").replace(/^.*?exception:\s*/i,""));return}
+  store.set("inv_nome",nome);store.set("inv_setor",setor);
+  $("#okTxt").innerHTML=`<div style="display:grid;gap:4px">${resumo}<span class="hint">Retirado por ${esc(nome)} (${esc(setor)})</span></div>`;
+  $("#form").hidden=true;$("#ok").hidden=false;window.scrollTo(0,0);
+  carregar();
+});
+$("#novo").addEventListener("click",()=>{
+  ["codigo","sap","desc","motivo"].forEach(id=>$("#"+id).value="");
+  $("#semCodigo").checked=false;$("#semSap").checked=false;$("#sap").disabled=false;
+  $("#blocoCodigo").hidden=false;$("#blocoSap").hidden=true;$("#blocoDesc").hidden=true;
+  $("#resCodigo").innerHTML="";$("#resSap").innerHTML="";escolhaSap=null;erro("");
+  $("#ok").hidden=true;$("#form").hidden=false;window.scrollTo(0,0);$("#codigo").focus();
+});
+carregar();
+})();
+</script>
+</body>
+</html>

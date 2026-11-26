@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Devolução de item</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Archivo:wght@700;800&display=swap">
+<link rel="stylesheet" href="qr.css">
+</head>
+<body>
+<header class="top"><h1>Devolução de item</h1><p>Inventário Suporte Técnico · Sala 1106</p></header>
+<main>
+  <div id="erroGeral" class="err-box" hidden></div>
+
+  <div id="form">
+    <section class="card">
+      <div class="step">1 · Quem está devolvendo</div>
+      <div><label for="pessoa">Seu nome</label>
+        <select id="pessoa"><option value="">Carregando nomes…</option></select>
+        <div class="hint">Aparecem só as pessoas que estão com algum item emprestado.</div>
+      </div>
+    </section>
+
+    <section class="card" id="cardItens" hidden style="margin-top:14px">
+      <div class="step">2 · Quais itens você está devolvendo</div>
+      <label class="check" id="todosBox"><input type="checkbox" id="todos"> Selecionar todos</label>
+      <div class="list" id="lista"></div>
+    </section>
+
+    <section class="card" id="cardObs" hidden style="margin-top:14px">
+      <div class="step">3 · Observação (opcional)</div>
+      <textarea id="obs" placeholder="Ex.: voltou com o conector danificado, faltou a base magnética"></textarea>
+    </section>
+
+    <div id="erroForm" class="err-box" hidden style="margin-top:14px"></div>
+    <button class="btn primary" type="button" id="devolver" hidden disabled style="margin-top:14px">Devolver</button>
+  </div>
+
+  <section id="ok" class="card done" hidden>
+    <div class="ico"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+    <h2 id="okTit">Devolução registrada</h2>
+    <div id="okTxt" style="text-align:left;width:100%"></div>
+    <div class="hint">Guarde cada item no lugar indicado.</div>
+    <button class="btn primary" type="button" id="novo">Registrar outra devolução</button>
+  </section>
+
+  <p class="foot"><a href="./">Abrir o inventário completo</a></p>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt=s=>{const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(s||"");return m?`${m[3]}/${m[2]}/${m[1]}`:""};
+const norm=s=>String(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().trim();
+const store={get(k){try{return localStorage.getItem(k)||""}catch(e){return ""}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+const CFG=window.INV_CONFIG||{};
+if(!window.supabase||!CFG.url){$("#erroGeral").textContent="Página sem conexão com o banco. Verifique a internet e recarregue.";$("#erroGeral").hidden=false;return}
+const sb=window.supabase.createClient(CFG.url,CFG.anonKey,{auth:{persistSession:false}});
+
+let porPessoa={},secoes={};
+const onde=i=>{const s=secoes[i.secao]||i.secao;return s+(i.caixa?(i.caixa.length===1?" · Caixa "+i.caixa:" · "+i.caixa):"")};
+
+async function carregar(){
+  try{
+    let out=[],from=0;
+    for(;;){const r=await sb.from("itens").select("id,secao,caixa,codigo,descricao,emprestimo,removido").not("emprestimo","is",null).range(from,from+999);if(r.error)throw r.error;out=out.concat(r.data);if(r.data.length<1000)break;from+=1000}
+    const s=await sb.from("secoes").select("id,nome");if(!s.error)s.data.forEach(x=>secoes[x.id]=x.nome);
+    const av=await sb.from("emprestimos").select("id,descricao,pessoa,retirada,setor").is("item_id",null).is("devolucao",null);
+    porPessoa={};
+    const add=(p,x)=>{const k=norm(p);(porPessoa[k]=porPessoa[k]||{nome:p,itens:[]}).itens.push(x)};
+    out.filter(i=>!i.removido).forEach(i=>add(i.emprestimo.pessoa,{tipo:"item",id:i.id,codigo:i.codigo,descricao:i.descricao,desde:i.emprestimo.desde,onde:onde(i)}));
+    if(!av.error)av.data.forEach(e=>add(e.pessoa,{tipo:"avulso",id:e.id,codigo:"",descricao:e.descricao,desde:e.retirada,onde:"Item sem cadastro no inventário"}));
+    const nomes=Object.values(porPessoa).sort((a,b)=>a.nome.localeCompare(b.nome,"pt-BR"));
+    const sel=$("#pessoa"),cur=sel.value||norm(store.get("inv_nome"));
+    sel.innerHTML=`<option value="">Escolha seu nome</option>`+nomes.map(p=>`<option value="${esc(norm(p.nome))}">${esc(p.nome)} (${p.itens.length} ${p.itens.length===1?"item":"itens"})</option>`).join("");
+    if(cur&&porPessoa[cur])sel.value=cur;
+    mostrar();
+  }catch(e){$("#erroGeral").textContent="Não foi possível carregar os empréstimos. Verifique a internet e recarregue a página.";$("#erroGeral").hidden=false}
+}
+function sorted(list){return list.slice().sort((a,b)=>(a.codigo||"~").localeCompare(b.codigo||"~",undefined,{numeric:true}))}
+function mostrar(){
+  const p=porPessoa[$("#pessoa").value];
+  const tem=!!p;$("#cardItens").hidden=!tem;$("#cardObs").hidden=!tem;$("#devolver").hidden=!tem;$("#todos").checked=false;
+  if(!p){$("#lista").innerHTML="";atualizar();return}
+  $("#todosBox").hidden=p.itens.length<2;
+  $("#lista").innerHTML=sorted(p.itens).map(x=>`<label class="opt"><input type="checkbox" class="it" value="${esc(x.tipo+"|"+x.id)}">
+    <span>${x.codigo?`<span class="code">${esc(x.codigo)}</span> `:""}<b>${esc(x.descricao||"(sem descrição)")}</b><br>
+    <span class="hint">${esc(x.onde)}${x.desde?` · desde ${fmt(x.desde)}`:""}</span></span></label>`).join("");
+  $("#lista").querySelectorAll(".it").forEach(c=>c.addEventListener("change",()=>{c.closest(".opt").classList.toggle("sel",c.checked);atualizar()}));
+  atualizar();
+}
+function marcados(){return [...document.querySelectorAll("#lista .it:checked")].map(c=>c.value)}
+function atualizar(){
+  const n=marcados().length,tot=document.querySelectorAll("#lista .it").length;
+  $("#devolver").disabled=!n;$("#devolver").textContent=n>1?`Devolver ${n} itens`:"Devolver";
+  $("#todos").checked=tot>0&&n===tot;
+}
+$("#pessoa").addEventListener("change",()=>{erro("");mostrar()});
+$("#todos").addEventListener("change",e=>{document.querySelectorAll("#lista .it").forEach(c=>{c.checked=e.target.checked;c.closest(".opt").classList.toggle("sel",c.checked)});atualizar()});
+function erro(t){$("#erroForm").textContent=t;$("#erroForm").hidden=!t}
+$("#devolver").addEventListener("click",async()=>{
+  erro("");const sel=marcados();if(!sel.length)return;
+  const p=porPessoa[$("#pessoa").value],obs=$("#obs").value.trim();
+  $("#devolver").disabled=true;$("#devolver").textContent="Registrando…";
+  const okList=[],falhas=[];
+  for(const v of sel){
+    const [tipo,id]=v.split("|");const x=p.itens.find(i=>i.id===id&&i.tipo===tipo);
+    const r=tipo==="item"?await sb.rpc("devolver",{p_item:id,p_data:null,p_obs:obs}):await sb.rpc("devolver_avulso",{p_emprestimo:id,p_obs:obs});
+    if(r.error)falhas.push(`${x.codigo||x.descricao}: ${(r.error.message||"erro").replace(/^.*?exception:\s*/i,"")}`);else okList.push(x);
+  }
+  if(!okList.length){erro("Nenhum item foi devolvido. "+falhas.join(" · "));atualizar();return}
+  store.set("inv_nome",p.nome);
+  $("#okTit").textContent=okList.length>1?`${okList.length} itens devolvidos`:"Devolução registrada";
+  $("#okTxt").innerHTML=`<div class="list">${okList.map(x=>`<div class="found ok"><span>${x.codigo?`<span class="code">${esc(x.codigo)}</span> `:""}<b>${esc(x.descricao)}</b></span><span class="hint">Guardar em: ${esc(x.onde)}</span></div>`).join("")}</div>`
+    +(falhas.length?`<div class="err-box" style="margin-top:10px">Não foi possível devolver: ${esc(falhas.join(" · "))}</div>`:"");
+  $("#form").hidden=true;$("#ok").hidden=false;window.scrollTo(0,0);
+});
+$("#novo").addEventListener("click",()=>{$("#obs").value="";$("#ok").hidden=true;$("#form").hidden=false;$("#pessoa").value="";carregar();window.scrollTo(0,0)});
+carregar();
+})();
+</script>
+</body>
+</html>
