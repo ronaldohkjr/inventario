@@ -82,6 +82,7 @@ tbody tr.click{cursor:pointer} tbody tr.click:hover{background:var(--surface-2)}
 .where{white-space:nowrap}
 .pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;border-radius:999px;padding:2px 9px;white-space:nowrap}
 .pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill.info{background:var(--accent-soft);color:var(--accent)} .pill.neutral{background:var(--surface-2);color:var(--muted)}
 .pill.ok{background:var(--ok-soft);color:var(--ok)} .pill.out{background:var(--warn-soft);color:var(--warn)} .pill.gone{background:var(--bad-soft);color:var(--bad)}
 .empty{padding:32px;text-align:center;color:var(--muted)}
 /* overlay */
@@ -181,6 +182,7 @@ dt{color:var(--muted);font-size:13px} dd{margin:0;min-width:0;overflow-wrap:anyw
       <button role="tab" data-tab="emprestimos" aria-selected="false">Empréstimos</button>
       <button role="tab" data-tab="contagem" aria-selected="false">Contagem</button>
       <button role="tab" data-tab="baixas" aria-selected="false">Baixas</button>
+      <button role="tab" data-tab="historico" aria-selected="false">Histórico</button>
     </nav>
   </div>
 </header>
@@ -303,6 +305,22 @@ dt{color:var(--muted);font-size:13px} dd{margin:0;min-width:0;overflow-wrap:anyw
       <tbody id="baixas"></tbody>
     </table></div>
   </section>
+
+  <!-- HISTÓRICO GERAL -->
+  <section id="tab-historico" hidden>
+    <div class="meta" style="margin-top:0"><h2 style="margin:0">Histórico geral</h2><button class="btn" id="exportHist" type="button">Exportar histórico (CSV)</button></div>
+    <p class="lead">Tudo o que acontece com os itens fica registrado aqui automaticamente: cadastro, edição, empréstimo, devolução, transferência e baixa, com data, hora e quem fez.</p>
+    <div class="searchbar">
+      <input id="qH" class="q" type="search" placeholder="Busque por código, item, pessoa ou detalhe" autocomplete="off">
+      <select id="fHAcao" aria-label="Ação"><option value="">Todas as ações</option><option>Cadastro</option><option>Edição</option><option>Empréstimo</option><option>Devolução</option><option>Transferência</option><option>Baixa</option><option>Baixa desfeita</option></select>
+      <select id="fHPer" aria-label="Período"><option value="">Todo o período</option><option value="1">Hoje</option><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option></select>
+    </div>
+    <div class="meta"><span id="hCount">Carregando histórico…</span><span id="hResumo"></span></div>
+    <div class="tablebox"><table>
+      <thead><tr><th>Quando</th><th>Ação</th><th>Código</th><th>Item</th><th>Detalhes</th><th>Quem registrou</th></tr></thead>
+      <tbody id="hist2"><tr><td colspan="6" class="empty">Carregando histórico…</td></tr></tbody>
+    </table></div>
+  </section>
 </main>
 
 <datalist id="tiposList"></datalist>
@@ -322,7 +340,7 @@ const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 const norm=s=>String(s??"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase();
 const today=()=>{const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,10)};
 const fmtDate=s=>{if(!s)return "—";const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(s);return m?`${m[3]}/${m[2]}/${m[1]}`:esc(s)};
-const TABS=["buscar","cadastrar","emprestimos","contagem","baixas"];
+const TABS=["buscar","cadastrar","emprestimos","contagem","baixas","historico"];
 const MOTIVOS=["Ficou no cliente","Defeito / descartado","Perdido / não localizado","Cedido a outro setor","Outro"];
 const keyOf=code=>code.replace(/[^A-Za-z0-9]/g,"_")||("SC"+Date.now().toString(36));
 
@@ -330,6 +348,7 @@ let db=null,user=null,myId=null,canWrite=true;
 let secoes={};           // id -> {nome, ordem, itens}
 let items=[];            // flat, active + removed
 let emprestimos=[];      // history docs
+let historico=[],histLoaded=false;
 let limit=150;
 
 /* ---------- toast ---------- */
@@ -396,6 +415,7 @@ function render(){
   if(!$("#tab-emprestimos").hidden)renderEmp();
   if(!$("#tab-contagem").hidden)renderContagem();
   if(!$("#tab-baixas").hidden)renderBaixas();
+  if(!$("#tab-historico").hidden)renderHist();
 }
 function renderBusca(){
   const q=norm($("#q").value.trim()),loc=$("#fLocal").value,st=$("#fStatus").value;
@@ -881,6 +901,35 @@ $("#exportar").addEventListener("click",async()=>{
   setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000);toast("Planilha exportada")
 });
 
+/* ---------- histórico geral ---------- */
+const H_PILL={"Cadastro":"ok","Edição":"info","Empréstimo":"out","Devolução":"ok","Transferência":"out","Baixa":"gone","Baixa desfeita":"neutral"};
+const fmtWhen=t=>{if(!t)return "—";const d=new Date(t);return d.toLocaleDateString("pt-BR")+" "+d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})};
+function histFiltered(){
+  const terms=norm($("#qH").value.trim()).split(/\s+/).filter(Boolean),ac=$("#fHAcao").value,per=+$("#fHPer").value||0;
+  let since=0;if(per){const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-(per-1));since=d.getTime()}
+  return historico.filter(h=>(!ac||h.acao===ac)&&(!since||new Date(h.quando).getTime()>=since)&&(!terms.length||terms.every(t=>norm([h.acao,h.codigo,h.descricao,h.detalhe,h.usuario].join(" ")).includes(t))));
+}
+function renderHist(){
+  if(!histLoaded){$("#hCount").textContent="Carregando histórico…";return}
+  const list=histFiltered();
+  $("#hCount").textContent=`${list.length.toLocaleString("pt-BR")} ${list.length===1?"registro":"registros"}`;
+  const by={};list.forEach(h=>by[h.acao]=(by[h.acao]||0)+1);
+  $("#hResumo").textContent=Object.entries(by).sort((a,b)=>b[1]-a[1]).map(([a,n])=>`${a}: ${n}`).join(" · ");
+  $("#hist2").innerHTML=list.length?list.slice(0,500).map(h=>{const it=items.find(i=>i.key===h.item_id);
+    return `<tr${it?` class="click" data-k="${esc(it.sec+"|"+it.key)}" tabindex="0"`:""}><td style="white-space:nowrap">${fmtWhen(h.quando)}</td><td><span class="pill ${H_PILL[h.acao]||"neutral"}">${esc(h.acao)}</span></td><td>${codeHtml(h.codigo)}</td><td class="desc">${esc(h.descricao)}</td><td>${esc(h.detalhe||"—")}</td><td class="sub">${esc(h.usuario||"—")}</td></tr>`}).join("")
+    +(list.length>500?`<tr><td colspan="6" class="empty">Mostrando os 500 mais recentes. Use a busca ou os filtros para ver registros mais antigos.</td></tr>`:"")
+    :`<tr><td colspan="6" class="empty">${historico.length?"Nenhum registro corresponde à busca.":"Nenhum registro ainda. As próximas ações no portal aparecem aqui."}</td></tr>`;
+}
+["qH","fHAcao","fHPer"].forEach(id=>$("#"+id).addEventListener(id==="qH"?"input":"change",renderHist));
+$("#hist2").addEventListener("click",e=>{const tr=e.target.closest("tr[data-k]");if(tr)openItem(tr.dataset.k)});
+$("#exportHist").addEventListener("click",()=>{
+  const q=v=>{v=String(v??"");return /[;"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
+  const lines=["Quando;Ação;Código;Item;Detalhes;Quem registrou"].concat(histFiltered().map(h=>[fmtWhen(h.quando),h.acao,h.codigo,h.descricao,h.detalhe,h.usuario].map(q).join(";")));
+  const blob=new Blob(["\ufeff"+lines.join("\r\n")],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`historico-inventario-${today()}.csv`;document.body.appendChild(a);a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000);toast("Histórico exportado");
+});
+
 /* ---------- boot ---------- */
 const typing=()=>{if(drawerMode==="edit")return true;const a=document.activeElement;return !!a&&$("#overlay").contains(a)&&a.matches("input,textarea")&&a.value!==""};
 let loaded=false;
@@ -938,6 +987,12 @@ async function loadAll(){
   const n={};s.forEach(x=>n[x.id]={nome:x.nome,ordem:x.ordem,itens:{}});secoes=n;
   its.forEach(applyItemRow);emprestimos=emps.map(rowToEmp);loaded=true;
   afterItems();fillSelects();if(!$("#tab-emprestimos").hidden)renderEmp();
+  loadHist();
+}
+async function loadHist(){
+  const r=await sb.from("historico").select("*").order("quando",{ascending:false}).limit(5000);
+  if(r.error){histLoaded=true;historico=[];$("#hCount").textContent="Histórico indisponível (rode o arquivo historico.sql no Supabase).";return}
+  historico=r.data;histLoaded=true;if(!$("#tab-historico").hidden)renderHist();
 }
 let channel=null;
 function live(){
@@ -945,6 +1000,7 @@ function live(){
   channel=sb.channel("inventario")
     .on("postgres_changes",{event:"*",schema:"public",table:"itens"},p=>{if(p.eventType==="DELETE"){Object.values(secoes).forEach(s=>delete s.itens[p.old.id])}else applyItemRow(p.new);afterItems()})
     .on("postgres_changes",{event:"*",schema:"public",table:"emprestimos"},p=>{if(p.new&&p.new.id){upsertEmp(p.new);afterEmp()}})
+    .on("postgres_changes",{event:"INSERT",schema:"public",table:"historico"},p=>{if(p.new&&!historico.some(h=>h.id===p.new.id)){historico.unshift(p.new);if(!$("#tab-historico").hidden)renderHist()}})
     .subscribe(st=>{if(st==="SUBSCRIBED")setSync("on","Sincronizado ao vivo");else if(st==="CHANNEL_ERROR"||st==="TIMED_OUT")setSync("on","Sincronizado (recarregue para ver mudanças de outros)")});
 }
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&loaded)loadAll().catch(()=>{})});
