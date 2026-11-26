@@ -107,6 +107,28 @@ dt{color:var(--muted);font-size:13px} dd{margin:0;min-width:0;overflow-wrap:anyw
 .loginbox{max-width:460px;margin:40px auto}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:6px;z-index:30;font-weight:500;box-shadow:var(--shadow);max-width:calc(100% - 32px)}
 .toast.err{background:var(--bad);color:#fff}
+/* popup: item cadastrado */
+.okwrap{position:fixed;inset:0;z-index:40;background:rgba(8,20,28,.5);display:flex;align-items:center;justify-content:center;padding:16px}
+.okbox{background:var(--surface);border-radius:12px;box-shadow:var(--shadow);width:min(560px,100%);max-height:calc(100% - 32px);overflow-y:auto;padding:24px}
+.okhead{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+.okcheck{flex:0 0 44px;height:44px;border-radius:50%;background:var(--ok-soft);color:var(--ok);display:flex;align-items:center;justify-content:center}
+.okhead h2{margin:0;font-size:20px}
+.labels{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0}
+.label{background:#fff;color:#111;border:1px dashed #9aa5ad;border-radius:6px;padding:10px 14px;min-width:190px;flex:1 1 190px}
+.label .lc{font:700 28px var(--f-mono);letter-spacing:.03em;line-height:1.1}
+.label .ld{font-size:12px;margin-top:4px;line-height:1.3}
+.label .ls{font:500 11px var(--f-mono);color:#444;margin-top:2px}
+.okbox dl{margin-top:4px}
+#printArea{display:none}
+@media print{
+  body *{visibility:hidden!important}
+  #printArea,#printArea *{visibility:visible!important}
+  #printArea{display:block!important;position:absolute;left:0;top:0;width:100%}
+  #printArea .label{border:1px solid #000;width:60mm;min-width:0;display:inline-block;margin:0 4mm 4mm 0;padding:3mm 4mm;page-break-inside:avoid;flex:none}
+  #printArea .label .lc{font-size:20pt}
+  #printArea .label .ld{font-size:8pt}
+  #printArea .label .ls{font-size:7pt}
+}
 /* form */
 .form{display:grid;grid-template-columns:repeat(6,1fr);gap:14px}
 .form .c2{grid-column:span 2}.form .c3{grid-column:span 3}.form .c4{grid-column:span 4}.form .c6{grid-column:1/-1}
@@ -287,6 +309,8 @@ dt{color:var(--muted);font-size:13px} dd{margin:0;min-width:0;overflow-wrap:anyw
 <datalist id="pessoasList"></datalist>
 <div id="overlay" class="overlay" hidden></div>
 <div id="toast" class="toast" hidden role="status"></div>
+<div id="okModal" class="okwrap" hidden></div>
+<div id="printArea"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
@@ -752,13 +776,39 @@ $("#formNovo").addEventListener("submit",async e=>{
   $("#nSalvar").disabled=true;
   try{
     await db.doc("secoes/"+sid).update({itens:patch});
-    toast(codes.length>1?`${codes.length} unidades cadastradas (${codes[0]} a ${codes[codes.length-1]})`:`Item ${codes[0]} cadastrado`);
-    $("#nObs").value="";$("#nQtd").value=1;autoCode=true;lastPrefill="";
-    if(modo==="novo"){$("#nNum").value="";$("#nTipo").value="";$("#nDesc").value="";$("#nSap").value=""}
-    if($("#lkNum").value.trim())setTimeout(lookup,400);
-  }catch(err){toast(errMsg(err),true)}
-  updateNovo();
+    showCadastroOk(codes,base,sid);
+  }catch(err){toast(errMsg(err),true);updateNovo()}
 });
+function labelHtml(c,b){return `<div class="label"><div class="lc">${esc(c)}</div><div class="ld">${esc(b.descricao||b.descricaoSap||"")}</div>${b.numItem?`<div class="ls">SAP ${esc(b.numItem)}</div>`:""}</div>`}
+function showCadastroOk(codes,b,sid){
+  const m=$("#okModal"),onde=secoes[sid]?secoes[sid].nome:sid,cx=b.caixa?(b.caixa.length===1?"Caixa "+b.caixa:b.caixa):"—";
+  const labels=codes.map(c=>labelHtml(c,b)).join("");
+  m.innerHTML=`<div class="okbox" role="dialog" aria-modal="true" aria-labelledby="okTitle">
+    <div class="okhead"><div class="okcheck"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+      <div><h2 id="okTitle">${codes.length>1?codes.length+" unidades cadastradas":"Item cadastrado"}</h2><div class="sub">Etiqueta${codes.length>1?"s":""} para colar no item:</div></div></div>
+    <div class="labels">${labels}</div>
+    <dl>
+      <dt>Descrição</dt><dd>${esc(b.descricao||"—")}</dd>
+      <dt>Nº do item (SAP)</dt><dd>${esc(b.numItem||"—")}</dd>
+      <dt>Tipo</dt><dd>${esc(b.tipo||"—")}</dd>
+      <dt>Guardar em</dt><dd><b>${esc(onde)} · ${esc(cx)}</b></dd>
+      ${codes.length>1?`<dt>Códigos</dt><dd>${esc(codes[0])} a ${esc(codes[codes.length-1])}</dd>`:""}
+    </dl>
+    <div class="actions" style="margin-top:20px"><button class="btn primary" type="button" id="okFechar">OK, cadastrar outro</button><button class="btn" type="button" id="okPrint">Imprimir etiqueta${codes.length>1?"s":""}</button></div>
+  </div>`;
+  $("#printArea").innerHTML=labels;
+  m.hidden=false;$("#okFechar").focus();
+  $("#okPrint").addEventListener("click",()=>window.print());
+  $("#okFechar").addEventListener("click",closeCadastroOk);
+}
+function closeCadastroOk(){
+  const m=$("#okModal");if(m.hidden)return;
+  m.hidden=true;m.innerHTML="";$("#printArea").innerHTML="";
+  $("#formNovo").reset();
+  setTimeout(()=>{$("#lkNum").focus();window.scrollTo(0,0)},30);
+}
+$("#okModal").addEventListener("click",e=>{if(e.target.id==="okModal")closeCadastroOk()});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("#okModal").hidden)closeCadastroOk()});
 
 /* ---------- empréstimos ---------- */
 function renderEmp(){
