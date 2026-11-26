@@ -3,6 +3,6 @@
 // A chave "anon" pode ficar pública: quem protege os dados são as regras do banco (schema.sql).
 // NUNCA coloque aqui a chave "service_role".
 window.INV_CONFIG = {
-  url: "COLE_AQUI_A_PROJECT_URL",      // ex.: "https://abcdefghijk.supabase.co"
-  anonKey: "COLE_AQUI_A_CHAVE_ANON"
+  url: "https://ronaldohkjr.github.io/inventario/",      // ex.: "https://abcdefghijk.supabase.co"
+  anonKey: "sb_publishable_Dpkc6C_775qxRSMxosFC9A_9odRmQKB"
 };
