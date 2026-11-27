@@ -254,6 +254,8 @@ dt{color:var(--muted);font-size:13px} dd{margin:0;min-width:0;overflow-wrap:anyw
       <div class="c6"><label>Etiquetas que serão criadas</label><div class="preview" id="nPreview"></div></div>
       <div class="c2"><label for="nNum">Nº do item (SAP)</label><input id="nNum" inputmode="numeric" placeholder="4001030100024"></div>
       <div class="c2"><label for="nTipo">Tipo</label><input id="nTipo" list="tiposList" placeholder="CABO, ECU, ANTENA…"></div>
+      <div class="c2"><label for="nOrigem">Origem do item</label><select id="nOrigem" required><option value="">Escolha a origem…</option></select></div>
+      <div class="c2" id="nOrigemOutroBox" hidden><label for="nOrigemOutro">Qual origem?</label><input id="nOrigemOutro" maxlength="80" placeholder="Descreva de onde veio"></div>
       <div class="c2"><label for="nData">Cadastrado em</label><input id="nData" type="date"></div>
       <div class="c3"><label for="nDesc">Descrição comum</label><input id="nDesc" required placeholder="Cabo de divisão AN21"></div>
       <div class="c3"><label for="nSap">Descrição SAP</label><input id="nSap"></div>
@@ -329,6 +331,7 @@ dt{color:var(--muted);font-size:13px} dd{margin:0;min-width:0;overflow-wrap:anyw
 </main>
 
 <datalist id="tiposList"></datalist>
+<datalist id="origensList"></datalist>
 <datalist id="pessoasList"></datalist>
 <div id="overlay" class="overlay" hidden></div>
 <div id="toast" class="toast" hidden role="status"></div>
@@ -346,6 +349,7 @@ const norm=s=>String(s??"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase(
 const today=()=>{const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,10)};
 const fmtDate=s=>{if(!s)return "—";const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(s);return m?`${m[3]}/${m[2]}/${m[1]}`:esc(s)};
 const TABS=["buscar","cadastrar","emprestimos","contagem","baixas","historico"];
+const ORIGENS=["Devolução","Retorno de cliente","Solicitado ao estoque","Sobra de instalação"];
 const MOTIVOS=["Ficou no cliente","Defeito / descartado","Perdido / não localizado","Cedido a outro setor","Outro"];
 const keyOf=code=>code.replace(/[^A-Za-z0-9]/g,"_")||("SC"+Date.now().toString(36));
 
@@ -383,7 +387,7 @@ function rebuild(){
     Object.entries(s.itens||{}).forEach(([k,it])=>{if(it&&typeof it==="object")items.push(Object.assign({sec:sid,key:k},it))});
   });
   items.sort((a,b)=>(secoes[a.sec].ordem-secoes[b.sec].ordem)||cmpCode(a.codigo,b.codigo));
-  items.forEach(it=>{it._s=norm([it.codigo,it.descricao,it.descricaoSap,it.numItem,it.tipo,it.obs,it.emprestimo&&it.emprestimo.pessoa,secoes[it.sec].nome,it.caixa&&("caixa "+it.caixa)].join(" "))});
+  items.forEach(it=>{it._s=norm([it.codigo,it.descricao,it.descricaoSap,it.numItem,it.tipo,it.obs,it.origem,it.emprestimo&&it.emprestimo.pessoa,secoes[it.sec].nome,it.caixa&&("caixa "+it.caixa)].join(" "))});
   fillSelects();
 }
 function cmpCode(a,b){
@@ -478,6 +482,7 @@ function drawItem(mode){
      <dt>Tipo</dt><dd>${esc(it.tipo||"—")}</dd>
      <dt>Nº do item (SAP)</dt><dd>${esc(it.numItem||"—")}</dd>
      <dt>Descrição SAP</dt><dd>${esc(it.descricaoSap||"—")}</dd>
+     <dt>Origem</dt><dd>${esc(it.origem||"—")}</dd>
      <dt>Cadastrado em</dt><dd>${fmtDate(it.cadastradoEm)}</dd>
      <dt>Observação</dt><dd>${esc(it.obs||"—")}</dd>
    </dl>`;
@@ -588,7 +593,7 @@ function drawEdit(it){
       <div><label for="xSap">Descrição SAP</label><input id="xSap" value="${esc(it.descricaoSap||"")}"></div>
       <div class="row"><div><label for="xNum">Nº do item (SAP)</label><input id="xNum" value="${esc(it.numItem||"")}"></div>
         <div><label for="xTipo">Tipo</label><input id="xTipo" list="tiposList" value="${esc(it.tipo||"")}"></div></div>
-      <div class="row"><div><label for="xData">Cadastrado em</label><input id="xData" type="date" value="${esc(it.cadastradoEm||"")}"></div></div>
+      <div class="row"><div><label for="xOrigem">Origem</label><input id="xOrigem" list="origensList" value="${esc(it.origem||"")}" placeholder="Ex.: Retorno de cliente"></div><div><label for="xData">Cadastrado em</label><input id="xData" type="date" value="${esc(it.cadastradoEm||"")}"></div></div>
       <div class="actions" style="margin-top:4px"><button class="btn primary" type="submit" id="xSalvar">Salvar alterações</button><button class="btn" type="button" data-act="cancelEdit">Cancelar</button></div>
     </form></div>`;
   ov.hidden=false;
@@ -622,7 +627,7 @@ async function saveEdit(it){
   if(!edCheck()){btn.disabled=false;return}
   const sid=$("#xLocal").value,box=edBox();
   if($("#xCaixa").value==="__nova"&&!box){toast("Informe a letra da nova caixa.",true);btn.disabled=false;return}
-  const fields={codigo:$("#xCod").value.trim(),descricao:$("#xDesc").value.trim(),descricaoSap:$("#xSap").value.trim(),numItem:$("#xNum").value.trim(),tipo:$("#xTipo").value.trim().toUpperCase(),caixa:box,cadastradoEm:$("#xData").value,editadoEm:new Date().toISOString(),editadoPor:myId||""};
+  const fields={codigo:$("#xCod").value.trim(),descricao:$("#xDesc").value.trim(),descricaoSap:$("#xSap").value.trim(),numItem:$("#xNum").value.trim(),tipo:$("#xTipo").value.trim().toUpperCase(),caixa:box,cadastradoEm:$("#xData").value,origem:$("#xOrigem").value.trim(),editadoEm:new Date().toISOString(),editadoPor:myId||""};
   try{
     if(sid===it.sec){
       await db.doc("secoes/"+sid).update({itens:{[it.key]:fields}});
@@ -788,13 +793,15 @@ let lkT;$("#lkNum").addEventListener("input",()=>{clearTimeout(lkT);
 $("#lkNum").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();clearTimeout(lkT);lookup()}});
 $("#lkBtn").addEventListener("click",()=>{clearTimeout(lkT);lookup()});
 $("#lkRes").addEventListener("click",e=>{const b=e.target.closest("button[data-g]");if(b)applyGroup(+b.dataset.g)});
-$("#formNovo").addEventListener("reset",()=>setTimeout(()=>{$("#lkNum").value="";$("#lkRes").innerHTML="";lkGroups=[];setModo("novo");autoCode=true;lastPrefill="";$("#nData").value=today();$("#nQtd").value=1;refreshCaixas();updateNovo()},0));
+$("#formNovo").addEventListener("reset",()=>setTimeout(()=>{$("#nOrigemOutroBox").hidden=true;$("#lkNum").value="";$("#lkRes").innerHTML="";lkGroups=[];setModo("novo");autoCode=true;lastPrefill="";$("#nData").value=today();$("#nQtd").value=1;refreshCaixas();updateNovo()},0));
 $("#formNovo").addEventListener("submit",async e=>{
   e.preventDefault();
   const sid=$("#nLocal").value,box=currentBox(),codes=plannedCodes();
   if(!codes.length)return;
   if($("#nCaixa").value==="__nova"&&!box){toast("Informe a letra da nova caixa.",true);return}
-  const base={numItem:$("#nNum").value.trim(),tipo:$("#nTipo").value.trim().toUpperCase(),descricao:$("#nDesc").value.trim(),descricaoSap:$("#nSap").value.trim(),
+  const origem=$("#nOrigem").value==="__outro"?$("#nOrigemOutro").value.trim():$("#nOrigem").value;
+  if(!origem){toast("Informe a origem do item (de onde ele veio).",true);$("#nOrigem").focus();return}
+  const base={origem,numItem:$("#nNum").value.trim(),tipo:$("#nTipo").value.trim().toUpperCase(),descricao:$("#nDesc").value.trim(),descricaoSap:$("#nSap").value.trim(),
     caixa:box,cadastradoEm:$("#nData").value||today(),obs:$("#nObs").value.trim(),emprestimo:null,criadoPor:myId||""};
   const patch={};const used=new Set(Object.keys(secoes[sid].itens||{}));
   codes.forEach(c=>{let k=keyOf(c);while(used.has(k))k+="_";used.add(k);patch[k]=Object.assign({codigo:c},base)});
@@ -816,6 +823,7 @@ function showCadastroOk(codes,b,sid){
       <dt>Descrição</dt><dd>${esc(b.descricao||"—")}</dd>
       <dt>Nº do item (SAP)</dt><dd>${esc(b.numItem||"—")}</dd>
       <dt>Tipo</dt><dd>${esc(b.tipo||"—")}</dd>
+      <dt>Origem</dt><dd>${esc(b.origem||"—")}</dd>
       <dt>Guardar em</dt><dd><b>${esc(onde)} · ${esc(cx)}</b></dd>
       ${codes.length>1?`<dt>Códigos</dt><dd>${esc(codes[0])} a ${esc(codes[codes.length-1])}</dd>`:""}
     </dl>
@@ -834,6 +842,10 @@ function closeCadastroOk(){
 }
 $("#okModal").addEventListener("click",e=>{if(e.target.id==="okModal")closeCadastroOk()});
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("#okModal").hidden)closeCadastroOk()});
+
+$("#nOrigem").innerHTML=`<option value="">Escolha a origem…</option>`+ORIGENS.map(o=>`<option>${o}</option>`).join("")+`<option value="__outro">Outra…</option>`;
+$("#origensList").innerHTML=ORIGENS.map(o=>`<option value="${o}">`).join("");
+$("#nOrigem").addEventListener("change",()=>{const o=$("#nOrigem").value==="__outro";$("#nOrigemOutroBox").hidden=!o;if(o)$("#nOrigemOutro").focus()});
 
 /* ---------- empréstimos ---------- */
 function renderEmp(){
@@ -905,9 +917,9 @@ $("#baixas").addEventListener("click",e=>{const tr=e.target.closest("tr[data-k]"
 $("#baixas").addEventListener("keydown",e=>{if(e.key==="Enter"){const tr=e.target.closest("tr[data-k]");if(tr)openItem(tr.dataset.k)}});
 $("#tab-contagem").addEventListener("click",e=>{const b=e.target.closest("[data-open]");if(b)openItem(b.dataset.open)});
 $("#exportar").addEventListener("click",async()=>{
-  const cols=["Código","Local","Caixa","Nº do item","Tipo","Descrição comum","Descrição SAP","Cadastrado em","Situação","Com quem","Desde","Observação"];
+  const cols=["Código","Local","Caixa","Nº do item","Tipo","Descrição comum","Descrição SAP","Origem","Cadastrado em","Situação","Com quem","Desde","Observação"];
   const q=v=>{v=String(v??"");return /[;"\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
-  const lines=[cols.join(";")].concat(active().map(i=>[i.codigo,secoes[i.sec].nome,i.caixa,i.numItem,i.tipo,i.descricao,i.descricaoSap,fmtDate(i.cadastradoEm).replace("—",""),i.emprestimo?"Emprestado":"Disponível",i.emprestimo?.pessoa||"",i.emprestimo?.desde?fmtDate(i.emprestimo.desde):"",i.obs].map(q).join(";")));
+  const lines=[cols.join(";")].concat(active().map(i=>[i.codigo,secoes[i.sec].nome,i.caixa,i.numItem,i.tipo,i.descricao,i.descricaoSap,i.origem,fmtDate(i.cadastradoEm).replace("—",""),i.emprestimo?"Emprestado":"Disponível",i.emprestimo?.pessoa||"",i.emprestimo?.desde?fmtDate(i.emprestimo.desde):"",i.obs].map(q).join(";")));
   const blob=new Blob(["\ufeff"+lines.join("\r\n")],{type:"text/csv;charset=utf-8"});
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`inventario-suporte-${today()}.csv`;document.body.appendChild(a);a.click();
   setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000);toast("Planilha exportada")
@@ -955,11 +967,11 @@ if(!CFG.url||!CFG.anonKey||/COLE_AQUI/.test(CFG.url+CFG.anonKey)){
   setSync("err","Não configurado");return;
 }
 const sb=window.supabase.createClient(CFG.url,CFG.anonKey,{auth:{flowType:"implicit",detectSessionInUrl:true,persistSession:true,autoRefreshToken:true}});
-const I_MAP={codigo:"codigo",numItem:"num_item",tipo:"tipo",descricao:"descricao",descricaoSap:"descricao_sap",caixa:"caixa",cadastradoEm:"cadastrado_em",obs:"obs",emprestimo:"emprestimo",removido:"removido"};
+const I_MAP={codigo:"codigo",numItem:"num_item",tipo:"tipo",descricao:"descricao",descricaoSap:"descricao_sap",caixa:"caixa",cadastradoEm:"cadastrado_em",obs:"obs",origem:"origem",emprestimo:"emprestimo",removido:"removido"};
 const E_MAP={itemKey:"item_id",codigo:"codigo",descricao:"descricao",pessoa:"pessoa",retirada:"retirada",previsao:"previsao",motivo:"motivo",devolucao:"devolucao",obsDevolucao:"obs_devolucao",transferidoDe:"transferido_de"};
 const DATE_F=new Set(["cadastradoEm","retirada","previsao","devolucao"]);
 function toRow(p,map){const r={};for(const k in p){if(map[k]){let v=p[k];if(DATE_F.has(k)&&!v)v=null;if(v===undefined)continue;r[map[k]]=v}}return r}
-function rowToItem(r){return{codigo:r.codigo||"",numItem:r.num_item||"",tipo:r.tipo||"",descricao:r.descricao||"",descricaoSap:r.descricao_sap||"",caixa:r.caixa||"",cadastradoEm:r.cadastrado_em||"",obs:r.obs||"",emprestimo:r.emprestimo||null,removido:r.removido||null}}
+function rowToItem(r){return{codigo:r.codigo||"",numItem:r.num_item||"",tipo:r.tipo||"",descricao:r.descricao||"",descricaoSap:r.descricao_sap||"",caixa:r.caixa||"",cadastradoEm:r.cadastrado_em||"",obs:r.obs||"",origem:r.origem||"",emprestimo:r.emprestimo||null,removido:r.removido||null}}
 function rowToEmp(r){return{id:r.id,itemKey:r.item_id,codigo:r.codigo||"",descricao:r.descricao||"",pessoa:r.pessoa||"",retirada:r.retirada||"",previsao:r.previsao||"",motivo:r.motivo||"",devolucao:r.devolucao||"",obsDevolucao:r.obs_devolucao||"",transferidoDe:r.transferido_de||"",setor:r.setor||"",criadoEm:r.criado_em||""}}
 function sbErr(e){const c=String(e&&e.code||"");return{code:(c==="42501"||c==="PGRST301"||/permission|row-level/i.test(e&&e.message||""))?"invalid_argument":"unavailable",message:e&&e.message}}
 function applyItemRow(r){
