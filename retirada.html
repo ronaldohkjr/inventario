@@ -21,22 +21,23 @@
 
     <section class="card" style="margin-top:14px">
       <div class="step">2 · Qual item</div>
-      <div id="blocoCodigo">
-        <label for="codigo">Código da etiqueta</label>
+      <div id="blocoCodigo" class="field">
+        <label for="codigo">Código da etiqueta <span class="off-tag">não tem etiqueta</span></label>
         <input id="codigo" class="code-in" inputmode="text" autocapitalize="characters" autocomplete="off" placeholder="Ex.: 01E3.1">
         <div class="hint">É o código na etiqueta amarela do item: porta, caixa, número e unidade.</div>
-        <div id="resCodigo" style="margin-top:10px"></div>
+        <div id="resCodigo" class="res"></div>
+        <label class="check"><input type="checkbox" id="semCodigo"> O item não tem etiqueta</label>
       </div>
-      <label class="check"><input type="checkbox" id="semCodigo"> O item não tem etiqueta</label>
 
-      <div id="blocoSap" hidden>
-        <label for="sap">Código do item no SAP</label>
+      <div id="blocoSap" class="field" hidden>
+        <label for="sap">Código do item no SAP <span class="off-tag">não sei o código</span></label>
         <input id="sap" inputmode="numeric" autocomplete="off" placeholder="Ex.: 4001030100024">
-        <div id="resSap" style="margin-top:10px"></div>
+        <div class="hint">Está na embalagem ou na nota do item (13 dígitos).</div>
+        <div id="resSap" class="res"></div>
         <label class="check"><input type="checkbox" id="semSap"> Não sei o código SAP</label>
       </div>
 
-      <div id="blocoDesc" hidden>
+      <div id="blocoDesc" class="field" hidden>
         <label for="desc">Descrição do produto</label>
         <input id="desc" autocomplete="off" placeholder="Ex.: Cabo de divisão AN21">
         <div class="hint">Descreva o item do jeito mais completo que puder.</div>
@@ -116,7 +117,12 @@ function checarCodigo(){
   box.innerHTML=`<div class="found ok"><b>${codeHtml(it.codigo)} ${esc(it.descricao)}</b><span>Estava em ${esc(onde(it))}</span></div>`;
 }
 let tC;$("#codigo").addEventListener("input",()=>{clearTimeout(tC);tC=setTimeout(checarCodigo,250)});
-$("#semCodigo").addEventListener("change",()=>{const s=$("#semCodigo").checked;$("#blocoCodigo").hidden=s;$("#blocoSap").hidden=!s;if(s){$("#codigo").value="";$("#resCodigo").innerHTML="";setTimeout(()=>$("#sap").focus(),50)}atualizarDesc()});
+function mostrarCampo(el,on){const era=el.hidden;el.hidden=!on;if(on&&era){el.classList.remove("novo");void el.offsetWidth;el.classList.add("novo")}}
+$("#semCodigo").addEventListener("change",()=>{const s=$("#semCodigo").checked;
+  $("#blocoCodigo").classList.toggle("off",s);$("#codigo").disabled=s;mostrarCampo($("#blocoSap"),s);
+  if(s){$("#codigo").value="";$("#resCodigo").innerHTML="";setTimeout(()=>$("#sap").focus(),50)}
+  else{$("#semSap").checked=false;$("#blocoSap").classList.remove("off");$("#sap").disabled=false;$("#sap").value="";$("#resSap").innerHTML="";escolhaSap=null;setTimeout(()=>$("#codigo").focus(),50)}
+  atualizarDesc()});
 
 /* --- código SAP --- */
 function checarSap(){
@@ -139,10 +145,10 @@ function checarSap(){
   atualizarDesc();
 }
 let tS;$("#sap").addEventListener("input",()=>{clearTimeout(tS);tS=setTimeout(checarSap,300)});
-$("#semSap").addEventListener("change",()=>{const s=$("#semSap").checked;$("#sap").disabled=s;if(s){$("#sap").value="";$("#resSap").innerHTML="";escolhaSap=null}atualizarDesc();if(s)setTimeout(()=>$("#desc").focus(),50)});
+$("#semSap").addEventListener("change",()=>{const s=$("#semSap").checked;$("#sap").disabled=s;$("#blocoSap").classList.toggle("off",s);if(s){$("#sap").value="";$("#resSap").innerHTML="";escolhaSap=null}atualizarDesc();if(s)setTimeout(()=>$("#desc").focus(),50)});
 function atualizarDesc(){
   const precisa=$("#semCodigo").checked&&($("#semSap").checked||escolhaSap==="avulso");
-  $("#blocoDesc").hidden=!precisa;
+  mostrarCampo($("#blocoDesc"),precisa);
 }
 
 /* --- enviar --- */
@@ -185,7 +191,8 @@ $("#form").addEventListener("submit",async e=>{
 });
 $("#novo").addEventListener("click",()=>{
   ["codigo","sap","desc","motivo"].forEach(id=>$("#"+id).value="");
-  $("#semCodigo").checked=false;$("#semSap").checked=false;$("#sap").disabled=false;
+  $("#semCodigo").checked=false;$("#semSap").checked=false;$("#sap").disabled=false;$("#codigo").disabled=false;
+  $("#blocoCodigo").classList.remove("off");$("#blocoSap").classList.remove("off");
   $("#blocoCodigo").hidden=false;$("#blocoSap").hidden=true;$("#blocoDesc").hidden=true;
   $("#resCodigo").innerHTML="";$("#resSap").innerHTML="";escolhaSap=null;erro("");
   $("#ok").hidden=true;$("#form").hidden=false;window.scrollTo(0,0);$("#codigo").focus();

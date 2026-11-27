@@ -49,6 +49,19 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-vis
 .done .ico{width:72px;height:72px;border-radius:50%;background:var(--ok-soft);color:var(--ok);display:flex;align-items:center;justify-content:center}
 .done h2{margin:0;font:800 24px var(--f-display)}
 .err-box{background:var(--bad-soft);color:var(--fg);border:1px solid var(--bad);border-radius:10px;padding:12px}
+/* passos do "Qual item": campo marcado como "não possui" fica vermelho e o próximo aparece embaixo */
+.field{display:grid;gap:6px}
+.field+.field{border-top:1px dashed var(--line);padding-top:14px}
+.field label{display:flex;align-items:center;gap:8px;margin:0}
+.off-tag{display:none;font-size:12px;font-weight:700;color:var(--bad);background:var(--bad-soft);border:1px solid var(--bad);border-radius:999px;padding:1px 9px}
+.field.off .off-tag{display:inline-block}
+.field.off label{color:var(--bad)}
+.field.off input:not([type=checkbox]){border-color:var(--bad);background:var(--bad-soft);color:var(--bad);text-decoration:line-through;opacity:1}
+.field.off input:not([type=checkbox])::placeholder{color:var(--bad);opacity:1}
+.field.off .hint,.field.off .res{display:none}
+.field.off .check{color:var(--bad)}
+.field.novo{animation:none}
+@media (prefers-reduced-motion:no-preference){.field.novo{animation:entra .25s ease-out}@keyframes entra{from{opacity:0;transform:translateY(-6px)}}}
 .foot{text-align:center;font-size:13px}
 .foot a{color:var(--accent)}
 @media (prefers-reduced-motion:no-preference){.done .ico{animation:pop .3s ease-out}@keyframes pop{from{transform:scale(.6);opacity:0}}}
